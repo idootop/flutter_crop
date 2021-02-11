@@ -19,6 +19,7 @@ class Crop extends StatefulWidget {
   final Widget overlay;
   final bool interactive;
   final BoxShape shape;
+  final BoxFit fit;
   final ValueChanged<MatrixDecomposition> onChanged;
 
   Crop({
@@ -34,6 +35,7 @@ class Crop extends StatefulWidget {
     this.overlay,
     this.interactive: true,
     this.shape: BoxShape.rectangle,
+    this.fit: BoxFit.cover,
     this.onChanged,
   }) : super(key: key);
 
@@ -228,18 +230,15 @@ class _CropState extends State<Crop> with TickerProviderStateMixin {
     final o = Offset.lerp(_startOffset, _endOffset, _animation.value);
 
     Widget _buildInnerCanvas() {
-      final ip = IgnorePointer(
-        key: _key,
-        child: Transform(
-          alignment: Alignment.center,
-          transform: Matrix4.identity()
-            ..translate(o.dx, o.dy, 0)
-            ..rotateZ(r)
-            ..scale(s, s, 1),
-          child: FittedBox(
-            child: widget.child,
-            fit: BoxFit.cover,
-          ),
+      final tf = Transform(
+        alignment: Alignment.center,
+        transform: Matrix4.identity()
+          ..translate(o.dx, o.dy, 0)
+          ..rotateZ(r)
+          ..scale(s, s, 1),
+        child: FittedBox(
+          child: widget.child,
+          fit: widget.fit ?? BoxFit.cover,
         ),
       );
 
@@ -249,14 +248,33 @@ class _CropState extends State<Crop> with TickerProviderStateMixin {
         widgets.add(widget.background);
       }
 
-      widgets.add(ip);
+      if (widget.shape == BoxShape.circle) {
+        widgets.add(
+          IgnorePointer(key: _key, child: tf),
+        );
+        widgets.add(
+          RepaintBoundary(
+            key: _repaintBoundaryKey,
+            child: ClipOval(
+              child: IgnorePointer(child: tf),
+            ),
+          ),
+        );
+      } else {
+        widgets.add(
+          RepaintBoundary(
+            key: _repaintBoundaryKey,
+            child: IgnorePointer(key: _key, child: tf),
+          ),
+        );
+      }
 
       if (widget.foreground != null) {
         widgets.add(widget.foreground);
       }
 
       if (widgets.length == 1) {
-        return ip;
+        return tf;
       } else {
         return Stack(
           fit: StackFit.expand,
@@ -266,10 +284,7 @@ class _CropState extends State<Crop> with TickerProviderStateMixin {
     }
 
     Widget _buildRepaintBoundary() {
-      final repaint = RepaintBoundary(
-        key: _repaintBoundaryKey,
-        child: _buildInnerCanvas(),
-      );
+      final repaint = _buildInnerCanvas();
 
       if (widget.helper == null) {
         return repaint;
