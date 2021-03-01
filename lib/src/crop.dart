@@ -3,6 +3,7 @@ import 'dart:math';
 
 import 'package:crop/src/crop_render.dart';
 import 'package:crop/src/geometry_helper.dart';
+import 'package:crop/src/line.dart';
 import 'package:crop/src/matrix_decomposition.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -13,19 +14,19 @@ class Crop extends StatefulWidget {
   final Color backgroundColor;
   final Color dimColor;
   final EdgeInsetsGeometry padding;
-  final Widget background;
-  final Widget foreground;
-  final Widget helper;
-  final Widget overlay;
+  final Widget? background;
+  final Widget? foreground;
+  final Widget? helper;
+  final Widget? overlay;
   final bool interactive;
   final BoxShape shape;
-  final BoxFit fit;
-  final ValueChanged<MatrixDecomposition> onChanged;
+  final BoxFit? fit;
+  final ValueChanged<MatrixDecomposition>? onChanged;
 
   Crop({
-    Key key,
-    @required this.child,
-    @required this.controller,
+    Key? key,
+    required this.child,
+    required this.controller,
     this.padding: const EdgeInsets.all(8),
     this.dimColor: const Color.fromRGBO(0, 0, 0, 0.8),
     this.backgroundColor: Colors.black,
@@ -47,7 +48,7 @@ class Crop extends StatefulWidget {
   @override
   void debugFillProperties(DiagnosticPropertiesBuilder properties) {
     super.debugFillProperties(properties);
-    properties.add(DiagnosticsProperty<EdgeInsets>('padding', padding));
+    properties.add(DiagnosticsProperty<EdgeInsetsGeometry>('padding', padding));
     properties.add(ColorProperty('dimColor', dimColor));
     properties.add(DiagnosticsProperty('child', child));
     properties.add(DiagnosticsProperty('controller', controller));
@@ -73,12 +74,13 @@ class _CropState extends State<Crop> with TickerProviderStateMixin {
   Offset _startOffset = Offset.zero;
   Offset _endOffset = Offset.zero;
 
-  AnimationController _controller;
-  CurvedAnimation _animation;
+  late AnimationController _controller;
+  late CurvedAnimation _animation;
 
   Future<ui.Image> _crop(double pixelRatio) {
-    RenderRepaintBoundary rrb =
-        _repaintBoundaryKey.currentContext.findRenderObject();
+    final rrb = _repaintBoundaryKey.currentContext?.findRenderObject()
+        as RenderRepaintBoundary;
+
     return rrb.toImage(pixelRatio: pixelRatio);
   }
 
@@ -103,10 +105,60 @@ class _CropState extends State<Crop> with TickerProviderStateMixin {
     super.initState();
   }
 
+  static Offset _calculateEndOffset(RotatedRect image, Rect canvas) {
+    final ctl = canvas.topLeft;
+    final ctr = canvas.topRight;
+    final cbr = canvas.bottomRight;
+    final cbl = canvas.bottomLeft;
+
+    final itl = image.topLeft;
+    final itr = image.topRight;
+    final ibr = image.bottomRight;
+    final ibl = image.bottomLeft;
+
+    final l = Line(itl, ibl);
+    final t = Line(itr, itl);
+    final r = Line(ibr, itr);
+    final b = Line(ibl, ibr);
+
+    final tl = l.lineTo(ctl).a;
+    final tr = t.lineTo(ctr).a;
+    final br = r.lineTo(cbr).a;
+    final bl = b.lineTo(cbl).a;
+
+    final dtl = l.distanceToPoint(ctl);
+    final dtr = t.distanceToPoint(ctr);
+    final dbr = r.distanceToPoint(cbr);
+    final dbl = b.distanceToPoint(cbl);
+
+    var diff = Offset(0, 0);
+
+    if (dtl > 0) {
+      final d = canvas.topLeft - tl;
+      diff += d;
+    }
+
+    if (dtr > 0) {
+      final d = canvas.topRight - tr;
+      diff += d;
+    }
+
+    if (dbr > 0) {
+      final d = canvas.bottomRight - br;
+      diff += d;
+    }
+    if (dbl > 0) {
+      final d = canvas.bottomLeft - bl;
+      diff += d;
+    }
+
+    return diff;
+  }
+
   void _reCenterImage() {
     //final totalSize = _parent.currentContext.size;
 
-    final sz = _key.currentContext.size;
+    final sz = _key.currentContext!.size!;
     final s = widget.controller._scale * widget.controller._getMinScale();
     final w = sz.width;
     final h = sz.height;
@@ -114,36 +166,7 @@ class _CropState extends State<Crop> with TickerProviderStateMixin {
     final image = getRotated(
         canvas, widget.controller._rotation, s, widget.controller._offset);
     _startOffset = widget.controller._offset;
-    _endOffset = widget.controller._offset;
-
-    final tl = line(image.topLeft, image.bottomLeft, canvas.topLeft);
-    final tr = line(image.topLeft, image.topRight, canvas.topRight);
-    final br = line(image.bottomRight, image.topRight, canvas.bottomRight);
-    final bl = line(image.bottomLeft, image.bottomRight, canvas.bottomLeft);
-
-    final dtl = side(image.topLeft, image.bottomLeft, canvas.topLeft);
-    final dtr = side(image.topRight, image.topLeft, canvas.topRight);
-    final dbr = side(image.bottomRight, image.topRight, canvas.bottomRight);
-    final dbl = side(image.bottomLeft, image.bottomRight, canvas.bottomLeft);
-
-    if (dtl > 0) {
-      final d = canvas.topLeft - tl;
-      _endOffset += d;
-    }
-
-    if (dtr > 0) {
-      final d = canvas.topRight - tr;
-      _endOffset += d;
-    }
-
-    if (dbr > 0) {
-      final d = canvas.bottomRight - br;
-      _endOffset += d;
-    }
-    if (dbl > 0) {
-      final d = canvas.bottomLeft - bl;
-      _endOffset += d;
-    }
+    _endOffset = _startOffset + _calculateEndOffset(image, canvas);
 
     widget.controller._offset = _endOffset;
 
@@ -158,7 +181,7 @@ class _CropState extends State<Crop> with TickerProviderStateMixin {
   }
 
   void _reCenterImageNoAnimation() {
-    final sz = _key.currentContext.size;
+    final sz = _key.currentContext!.size!;
     final s = widget.controller._scale * widget.controller._getMinScale();
     final w = sz.width;
     final h = sz.height;
@@ -166,36 +189,7 @@ class _CropState extends State<Crop> with TickerProviderStateMixin {
     final image = getRotated(
         canvas, widget.controller._rotation, s, widget.controller._offset);
     _startOffset = widget.controller._offset;
-    _endOffset = widget.controller._offset;
-
-    final tl = line(image.topLeft, image.bottomLeft, canvas.topLeft);
-    final tr = line(image.topLeft, image.topRight, canvas.topRight);
-    final br = line(image.bottomRight, image.topRight, canvas.bottomRight);
-    final bl = line(image.bottomLeft, image.bottomRight, canvas.bottomLeft);
-
-    final dtl = side(image.topLeft, image.bottomLeft, canvas.topLeft);
-    final dtr = side(image.topRight, image.topLeft, canvas.topRight);
-    final dbr = side(image.bottomRight, image.topRight, canvas.bottomRight);
-    final dbl = side(image.bottomLeft, image.bottomRight, canvas.bottomLeft);
-
-    if (dtl > 0) {
-      final d = canvas.topLeft - tl;
-      _endOffset += d;
-    }
-
-    if (dtr > 0) {
-      final d = canvas.topRight - tr;
-      _endOffset += d;
-    }
-
-    if (dbr > 0) {
-      final d = canvas.bottomRight - br;
-      _endOffset += d;
-    }
-    if (dbl > 0) {
-      final d = canvas.bottomLeft - bl;
-      _endOffset += d;
-    }
+    _endOffset = _startOffset + _calculateEndOffset(image, canvas);
 
     _startOffset = _endOffset;
     widget.controller._offset = _endOffset;
@@ -217,7 +211,7 @@ class _CropState extends State<Crop> with TickerProviderStateMixin {
   }
 
   void _handleOnChanged() {
-    widget?.onChanged?.call(MatrixDecomposition(
+    widget.onChanged?.call(MatrixDecomposition(
         scale: widget.controller.scale,
         rotation: widget.controller.rotation,
         translation: widget.controller.offset));
@@ -227,7 +221,7 @@ class _CropState extends State<Crop> with TickerProviderStateMixin {
   Widget build(BuildContext context) {
     final r = widget.controller._rotation / 180.0 * pi;
     final s = widget.controller._scale * widget.controller._getMinScale();
-    final o = Offset.lerp(_startOffset, _endOffset, _animation.value);
+    final o = Offset.lerp(_startOffset, _endOffset, _animation.value)!;
 
     Widget _buildInnerCanvas() {
       final tf = Transform(
@@ -245,7 +239,7 @@ class _CropState extends State<Crop> with TickerProviderStateMixin {
       List<Widget> widgets = [];
 
       if (widget.background != null) {
-        widgets.add(widget.background);
+        widgets.add(widget.background!);
       }
 
       if (widget.shape == BoxShape.circle) {
@@ -270,7 +264,7 @@ class _CropState extends State<Crop> with TickerProviderStateMixin {
       }
 
       if (widget.foreground != null) {
-        widgets.add(widget.foreground);
+        widgets.add(widget.foreground!);
       }
 
       if (widgets.length == 1) {
@@ -292,7 +286,7 @@ class _CropState extends State<Crop> with TickerProviderStateMixin {
 
       return Stack(
         fit: StackFit.expand,
-        children: [repaint, widget.helper],
+        children: [repaint, widget.helper!],
       );
     }
 
@@ -319,7 +313,7 @@ class _CropState extends State<Crop> with TickerProviderStateMixin {
     ];
 
     if (widget.overlay != null) {
-      over.add(widget.overlay);
+      over.add(widget.overlay!);
     }
 
     if (widget.interactive) {
@@ -350,7 +344,7 @@ class CropController extends ChangeNotifier {
   double _rotation = 0;
   double _scale = 1;
   Offset _offset = Offset.zero;
-  _CropCallback _cropCallback;
+  _CropCallback? _cropCallback;
 
   double get aspectRatio => _aspectRatio;
   set aspectRatio(double value) {
@@ -421,6 +415,6 @@ class CropController extends ChangeNotifier {
       return Future.value(null);
     }
 
-    return _cropCallback.call(pixelRatio);
+    return _cropCallback!.call(pixelRatio);
   }
 }
