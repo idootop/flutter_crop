@@ -1,4 +1,4 @@
 library crop;
 
-export 'src/crop.dart';
+export 'src/ui.dart';
 export 'src/matrix_decomposition.dart';
